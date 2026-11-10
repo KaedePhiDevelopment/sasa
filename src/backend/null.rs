@@ -40,7 +40,7 @@ impl Default for NullBackend {
 }
 
 impl Backend for NullBackend {
-    fn setup(&mut self, setup: BackendSetup) -> Result<()> {
+    fn setup(&mut self, setup: BackendSetup) {
         let BackendSetup {
             mixer_cons,
             latency_rec,
@@ -70,7 +70,6 @@ impl Backend for NullBackend {
                 })
                 .expect("spawn null mixer thread"),
         );
-        Ok(())
     }
 
     fn start(&mut self) -> Result<()> {
