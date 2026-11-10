@@ -14,6 +14,7 @@ pub struct MusicParams {
     pub playback_rate: f64,
     pub command_buffer_size: usize,
 }
+
 impl Default for MusicParams {
     fn default() -> Self {
         Self {
@@ -25,10 +26,31 @@ impl Default for MusicParams {
     }
 }
 
+#[derive(Clone)]
+pub struct MusicClock {
+    state: Arc<SharedState>,
+    rate: f64,
+}
+
+impl MusicClock {
+    pub(crate) fn position(&self) -> f64 {
+        self.state.position.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn paused(&self) -> bool {
+        self.state.paused.load(Ordering::SeqCst)
+    }
+
+    pub(crate) fn rate(&self) -> f64 {
+        self.rate
+    }
+}
+
 struct SharedState {
     position: AtomicF64,
     paused: AtomicBool,
 }
+
 impl Default for SharedState {
     fn default() -> Self {
         Self {
@@ -61,6 +83,7 @@ pub(crate) struct MusicRenderer {
     fade_time: i32,
     fade_current: i32,
 }
+
 impl MusicRenderer {
     fn prepare(&mut self, sample_rate: u32) {
         if self.last_sample_rate != sample_rate {
@@ -248,11 +271,14 @@ impl Renderer for MusicRenderer {
 pub struct Music {
     arc: Arc<SharedState>,
     prod: HeapProducer<MusicCommand>,
+    rate: f64,
 }
+
 impl Music {
     pub(crate) fn new(clip: AudioClip, settings: MusicParams) -> (Music, MusicRenderer) {
         let (prod, cons) = HeapRb::new(settings.command_buffer_size).split();
         let arc = Arc::default();
+        let rate = settings.playback_rate;
         let renderer = MusicRenderer {
             clip,
             settings,
@@ -267,7 +293,14 @@ impl Music {
             fade_time: 0,
             fade_current: 0,
         };
-        (Self { arc, prod }, renderer)
+        (
+            Self {
+                arc,
+                prod,
+                rate,
+            },
+            renderer,
+        )
     }
 
     pub fn play(&mut self) -> Result<()> {
@@ -325,5 +358,12 @@ impl Music {
 
     pub fn position(&self) -> f64 {
         self.arc.position.load(Ordering::SeqCst)
+    }
+
+    pub fn clock(&self) -> MusicClock {
+        MusicClock {
+            state: Arc::clone(&self.arc),
+            rate: self.rate,
+        }
     }
 }

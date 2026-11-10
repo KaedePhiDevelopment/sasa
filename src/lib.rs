@@ -9,7 +9,7 @@ pub use clip::AudioClip;
 mod mixer;
 
 mod renderer;
-pub use renderer::{Music, MusicParams, PlaySfxParams, Renderer, Sfx};
+pub use renderer::{Music, MusicClock, MusicParams, PlaySfxParams, Renderer, Sfx};
 
 pub mod recorder;
 pub use recorder::{Recorder, Record};
@@ -35,6 +35,7 @@ fn buffer_is_full<E>(_: E) -> anyhow::Error {
 
 #[derive(Clone, Copy, Default)]
 pub struct Frame(pub f32, pub f32);
+
 impl Frame {
     pub fn avg(&self) -> f32 {
         (self.0 + self.1) / 2.
@@ -111,35 +112,40 @@ pub struct AudioManager {
 }
 
 impl AudioManager {
-    pub fn new(backend: impl Backend + 'static) -> Result<Self> {
+    pub fn new(backend: impl Backend + 'static) -> Self {
         Self::new_box(Box::new(backend))
     }
 
-    pub fn new_box(mut backend: Box<dyn Backend>) -> Result<Self> {
+    pub fn new_box(mut backend: Box<dyn Backend>) -> Self {
         let (prod, cons) = HeapRb::new(16).split();
         let latency: Arc<AtomicF64> = Arc::default();
         let latency_rec = LatencyRecorder::new(Arc::clone(&latency));
         backend.setup(BackendSetup {
             mixer_cons: cons,
             latency_rec,
-        })?;
-        backend.start()?;
-        Ok(Self {
+        });
+        Self {
             backend,
             latency,
             prod,
-        })
+        }
     }
 
     pub fn create_sfx(&mut self, clip: AudioClip, buffer_size: Option<usize>) -> Result<Sfx> {
         let (sfx, sfx_renderer) = Sfx::new(clip, buffer_size);
-        self.add_renderer(sfx_renderer)?;
+        self.prod
+            .push(RenderMixerCommand::AddSfxRenderer(Box::new(sfx_renderer)))
+            .map_err(buffer_is_full)
+            .context("add sfx renderer")?;
         Ok(sfx)
     }
 
     pub fn create_music(&mut self, clip: AudioClip, settings: MusicParams) -> Result<Music> {
         let (music, music_renderer) = Music::new(clip, settings);
-        self.add_renderer(music_renderer)?;
+        self.prod
+            .push(RenderMixerCommand::AddMusicRenderer(Box::new(music_renderer)))
+            .map_err(buffer_is_full)
+            .context("add music renderer")?;
         Ok(music)
     }
 
